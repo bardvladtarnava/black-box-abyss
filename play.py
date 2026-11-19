@@ -1,0 +1,228 @@
+import argparse
+import sys
+import time
+
+from audio import Sound
+from console import CombatView, Display, Terminal
+from dive import Dive, Echo, Rivet
+
+FPS = 20
+IMPACT_PHASE = {"cutter": .48, "counter": .545, "resonate": .51, "decoy": .48}
+CLIPS = {
+    "cutter": (.65, ((0., "swing"), (IMPACT_PHASE["cutter"], "impact")), "Cutter / hydraulic thrust"),
+    "counter": (.72, ((.16, "swing"), (IMPACT_PHASE["counter"], "enemy")), "Incoming / contact strikes"),
+    "anchor": (.76, ((.12, "swing"), (.50, "clang")), "Anchor / shielding deployed"),
+    "decoy": (.80, ((.1, "echo"), (IMPACT_PHASE["decoy"], "impact")), "Acoustic decoy / return to sender"),
+    "repair": (.64, ((0., "heal"),), "Field repair / cell transfer"),
+    "resonate": (.90, ((0., "chord"), (IMPACT_PHASE["resonate"], "echo")), "Standing wave / signature matched"),
+    "wreck": (.84, ((.06, "wreck"),), "Contact silent / salvaging tape"),
+}
+
+
+class Expedition:
+    def __init__(self, term, sound, still=False):
+        self.term = term
+        self.screen = Display(term)
+        self.sound = sound
+        self.animate = term.live and not still
+        self.epoch = time.monotonic()
+
+    def clock(self):
+        return time.monotonic() - self.epoch
+
+    @property
+    def audio_label(self):
+        if self.sound.label == "offline":
+            return "off-line"
+        return "muted" if self.sound.muted else "sound"
+
+    def wait(self, draw):
+        if not self.animate:
+            draw()
+            return self.term.read()
+        while True:
+            draw()
+            key = self.term.read(.14)
+            if key is not None:
+                return key
+
+    def menu(self):
+        while True:
+            key = self.wait(lambda: self.screen.menu(self.clock(), self.audio_label))
+            if key in ("1", "2", "q", "d"):
+                return key
+            if key == "m":
+                self.sound.toggle()
+
+    def draw(self, game, message, **frame):
+        self.screen.battle(game, message, self.clock(), self.audio_label, **frame)
+
+    def sequence(self, duration, cues, draw, update=lambda phase: None):
+        steps = max(2, round(duration * FPS))
+        start = time.monotonic()
+        event_index = 0
+        for step in range(steps + 1):
+            deadline = start + duration * step / steps
+            time.sleep(max(0, deadline - time.monotonic()))
+            phase = step / steps
+            update(phase)
+            while event_index < len(cues) and cues[event_index][0] <= phase:
+                self.sound.cue(cues[event_index][1])
+                event_index += 1
+            draw(phase)
+
+    def clip(self, before, event):
+        duration, cues, label = CLIPS[event.kind]
+        applied = False
+
+        def update(phase):
+            nonlocal applied
+            marker = IMPACT_PHASE.get(event.kind, .48)
+            if not applied and phase >= marker:
+                before.apply(event)
+                applied = True
+
+        def frame(phase):
+            feedback = label
+            if applied and event.points:
+                sign = "+" if event.kind == "repair" else "-"
+                feedback += f"   {sign}{event.points} HULL"
+            self.draw(before, feedback, kind=event.kind, phase=phase)
+
+        self.sequence(duration, cues, frame, update)
+
+    def call(self, game, phrase=""):
+        song = game.sector.song
+        message = "Hydrophone / listen to the contact, then play its three pitches."
+        if self.term.live:
+            cues = tuple((.3 * i, "note" + digit) for i, digit in enumerate(song))
+            def show(phase):
+                self.draw(game, message, kind="listen" if self.animate else "idle", phase=phase, phrase=phrase)
+            self.sequence(.98, cues, show)
+        else:
+            self.draw(game, message, phrase=phrase)
+
+    def tune(self, game):
+        self.call(game)
+        phrase = ""
+        message = "Play the signature. No time limit."
+        while True:
+            key = self.wait(lambda: self.draw(game, message, phrase=phrase))
+            if key == "q":
+                return "q", ""
+            if key in ("esc", "x"):
+                return "", ""
+            if key == "m":
+                self.sound.toggle()
+            elif key == "l":
+                self.call(game, phrase)
+            elif key == "back":
+                phrase = phrase[:-1]
+            elif key and all(ch in "123" for ch in key) and len(phrase + key) <= 3:
+                for digit in key:
+                    self.sound.cue("note" + digit)
+                phrase += key
+                self.draw(game, message, phrase=phrase)
+                if len(phrase) == 3:
+                    if phrase == game.sector.song:
+                        return "f", phrase
+                    message = f"{phrase} / No match. Listen again or enter the call."
+                    phrase = ""
+
+    def perform(self, game, key, phrase=""):
+        before = CombatView(game) if self.animate and key in ("a", "s", "r", "f") else None
+        result = game.resolve(key, phrase)
+        if result.events:
+            if before:
+                before.finish(game)
+            for event in result.events:
+                if before:
+                    self.clip(before, event)
+                else:
+                    self.sound.cue(CLIPS[event.kind][1][-1][1])
+            self.sound.scene(game.index, game.can_tune or game.pilot.hull <= 9)
+            if result.events[-1].kind == "wreck":
+                self.sound.cue("ending" if game.status == "won" else "reel")
+            if game.status == "lost":
+                self.sound.cue("lost")
+        return result.message
+
+    def game(self, selection):
+        game = Dive(Rivet() if selection == "1" else Echo())
+        message = "An amber light moves behind the flood gate. Cut twice to charge the hydrophone."
+        while game.status == "active":
+            key = self.wait(lambda: self.draw(game, message))
+            phrase = ""
+            if key == "m":
+                self.sound.toggle()
+                continue
+            if key == "f" and game.can_tune:
+                key, phrase = self.tune(game)
+                if not key:
+                    message = "Hydrophone closed."
+                    continue
+            message = self.perform(game, key, phrase)
+        self.draw(game, message, closed=game.status != "quit")
+        if self.term.live and game.status != "quit":
+            while True:
+                key = self.wait(lambda: self.draw(game, message, closed=True))
+                if key in ("q", "enter", "esc"):
+                    break
+                if key == "m":
+                    self.sound.toggle()
+        return game.status
+
+    def demo(self):
+        game = Dive(Echo())
+        message = "Flight recorder playback / autonomous pilot. Q returns to the surface."
+        while game.status == "active":
+            self.draw(game, message)
+            if self.term.live and self.term.read(.56) == "q":
+                return "quit"
+            if game.can_tune:
+                if self.term.live:
+                    self.call(game)
+                key = "f"
+            elif game.contact.hull <= 5:
+                key = "a"
+            elif game.pilot.hull <= 15 and len(game.pilot.pack):
+                key = "r"
+            elif game.pulse >= 5 and len(game.pilot.pack) >= 2:
+                key = "s"
+            else:
+                key = "a"
+            message = self.perform(game, key, game.sector.song)
+        self.draw(game, message, closed=True)
+        if self.term.live:
+            self.term.read(2.)
+        return game.status
+
+
+def main():
+    parser = argparse.ArgumentParser(description="BLACK BOX / a terminal hydrophone adventure")
+    parser.add_argument("--mute", action="store_true", help="start with music and effects muted")
+    parser.add_argument("--still", action="store_true", help="use still combat scenes")
+    parser.add_argument("--plain", action="store_true", help="use line input and a text-only interface")
+    parser.add_argument("--demo", action="store_true", help="play a full flight-recorder run")
+    args = parser.parse_args()
+    if hasattr(sys.stdout, "reconfigure") and sys.stdout.encoding.lower() != "utf-8":
+        sys.stdout.reconfigure(encoding="utf-8")
+    with Terminal(args.plain) as term:
+        sound = Sound(term.live, args.mute)
+        try:
+            expedition = Expedition(term, sound, args.still)
+            choice = "d" if args.demo else expedition.menu()
+            if choice == "q":
+                return
+            result = expedition.demo() if choice == "d" else expedition.game(choice)
+        finally:
+            sound.close()
+    print("BLACK BOX  /  " + {"won": "Master tape recovered.", "quit": "At the surface.",
+                              "lost": "Telemetry lost."}[result])
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (EOFError, KeyboardInterrupt):
+        print("\nAt the surface.")
