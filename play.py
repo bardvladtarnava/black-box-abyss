@@ -4,7 +4,8 @@ import time
 
 from audio import Sound
 from console import CombatView, Display, Terminal, combat_actions
-from dive import Dive, Echo, Rivet
+from dive import Dive, Echo, Rivet, SECTORS
+from locale_text import LANGUAGES
 
 FPS = 20
 IMPACT_PHASE = {"cutter": .48, "counter": .545, "resonate": .51, "decoy": .48}
@@ -22,9 +23,9 @@ CLIPS = {
 
 
 class Expedition:
-    def __init__(self, term, sound, still=False):
+    def __init__(self, term, sound, still=False, language="bg"):
         self.term = term
-        self.screen = Display(term)
+        self.screen = Display(term, language)
         self.sound = sound
         self.animate = term.live and not still
         self.epoch = time.monotonic()
@@ -35,8 +36,8 @@ class Expedition:
     @property
     def audio_label(self):
         if self.sound.label == "offline":
-            return "off-line"
-        return "muted" if self.sound.muted else "sound"
+            return "Audio offline"
+        return "Muted" if self.sound.muted else "Sound"
 
     def wait(self, draw):
         if not self.animate:
@@ -48,6 +49,33 @@ class Expedition:
             if key is not None:
                 return key
 
+    def change_language(self, game=None):
+        choices = dict(zip("123", LANGUAGES))
+        while True:
+            key = self.wait(self.screen.language_menu)
+            if key in ("esc", "k", "x", "q"):
+                return False
+            if key in choices:
+                self.screen.language = choices[key]
+                if game:
+                    game.language = choices[key]
+                return True
+
+    def map(self, game=None):
+        selected = game.index if game else 0
+        while True:
+            key = self.wait(lambda: self.screen.station_map(game, selected, self.clock()))
+            if key in ("esc", "p", "enter", "q"):
+                return
+            if key in ("up", "left"):
+                selected = (selected - 1) % len(SECTORS)
+            elif key in ("down", "right", "tab"):
+                selected = (selected + 1) % len(SECTORS)
+            elif key in ("1", "2", "3", "4"):
+                selected = int(key) - 1
+            elif key == "k":
+                self.change_language(game)
+
     def menu(self):
         while True:
             key = self.wait(lambda: self.screen.menu(self.clock(), self.audio_label))
@@ -55,6 +83,10 @@ class Expedition:
                 return key
             if key == "m":
                 self.sound.toggle()
+            elif key == "k":
+                self.change_language()
+            elif key == "p":
+                self.map()
 
     def draw(self, game, message, **frame):
         if isinstance(game, Dive) and not frame:
@@ -87,10 +119,10 @@ class Expedition:
                 applied = True
 
         def frame(phase):
-            feedback = label
+            feedback = self.screen.text(label)
             if applied and event.points:
                 sign = "+" if event.kind == "repair" else "-"
-                feedback += f"   {sign}{event.points} HULL"
+                feedback += f"   {sign}{event.points} {self.screen.text('Hull').upper()}"
             pose = {"breach": "cutter", "brace": "anchor"}.get(event.kind, event.kind)
             self.draw(before, feedback, kind=pose, phase=phase)
 
@@ -98,7 +130,7 @@ class Expedition:
 
     def call(self, game, phrase=""):
         song = game.sector.song
-        message = "Hydrophone / listen to the contact, then play its three pitches."
+        message = game.text("Listen to the contact, then repeat its three notes.")
         if self.term.live:
             cues = tuple((.3 * i, "note" + digit) for i, digit in enumerate(song))
             def show(phase):
@@ -110,7 +142,7 @@ class Expedition:
     def tune(self, game):
         self.call(game)
         phrase = ""
-        message = "Play the signature. No time limit."
+        message = game.text("Play the signature. No time limit.")
         while True:
             key = self.wait(lambda: self.draw(game, message, phrase=phrase))
             if key == "q":
@@ -119,6 +151,9 @@ class Expedition:
                 return "", ""
             if key == "m":
                 self.sound.toggle()
+            elif key == "k":
+                if self.change_language(game):
+                    message = game.text("Play the signature. No time limit.")
             elif key == "l":
                 self.call(game, phrase)
             elif key == "back":
@@ -131,7 +166,7 @@ class Expedition:
                 if len(phrase) == 3:
                     if phrase == game.sector.song:
                         return "f", phrase
-                    message = f"{phrase} / No match. Listen again or enter the call."
+                    message = f"{phrase} / " + game.text("No harmonic match. Listen and try again.")
                     phrase = ""
 
     def perform(self, game, key, phrase=""):
@@ -153,6 +188,7 @@ class Expedition:
         return result.message
 
     def salvage(self, game, message):
+        tape = SECTORS[game.index - 1].tape
         selected = 0
         while True:
             key = self.wait(lambda: self.screen.service(game, message, self.clock(), selected))
@@ -160,6 +196,12 @@ class Expedition:
                 selected = 1 - selected
             elif key == "m":
                 self.sound.toggle()
+            elif key in ("p", "k"):
+                if key == "p":
+                    self.map(game)
+                else:
+                    self.change_language(game)
+                message = game.text(tape) + "  [" + game.text("+1 cell") + "]"
             elif key == "q":
                 return self.perform(game, key)
             elif key in ("1", "2", "enter"):
@@ -168,7 +210,7 @@ class Expedition:
                 return game.take_salvage(choice) + " " + game.sector_hint
 
     def game(self, selection):
-        game = Dive(Rivet() if selection == "1" else Echo())
+        game = Dive(Rivet() if selection == "1" else Echo(), self.screen.language)
         message = game.sector_hint
         focus = 0
         while game.status == "active":
@@ -190,10 +232,19 @@ class Expedition:
             if key == "m":
                 self.sound.toggle()
                 continue
+            if key in ("p", "k"):
+                language = game.language
+                if key == "p":
+                    self.map(game)
+                else:
+                    self.change_language(game)
+                if game.language != language:
+                    message = game.sector_hint
+                continue
             if key == "f" and game.can_tune:
                 key, phrase = self.tune(game)
                 if not key:
-                    message = "Hydrophone closed."
+                    message = game.text("Hydrophone closed.")
                     continue
             if key == "i":
                 message = self.perform(game, key) + " " + game.sector_hint
@@ -207,11 +258,14 @@ class Expedition:
                     break
                 if key == "m":
                     self.sound.toggle()
+                elif key == "p":
+                    self.map(game)
+                    message = game.text(game.sector.tape if game.status == "won" else "Telemetry lost.")
         return game.status
 
     def demo(self):
-        game = Dive(Echo())
-        message = "Flight recorder playback / autonomous pilot. Q returns to the surface."
+        game = Dive(Echo(), self.screen.language)
+        message = game.text("Autonomous replay. Q returns to the surface.")
         while game.status == "active":
             self.draw(game, message)
             if self.term.live and self.term.read(.56) == "q":
@@ -246,25 +300,25 @@ def main():
     parser.add_argument("--still", action="store_true", help="use still combat scenes")
     parser.add_argument("--plain", action="store_true", help="use line input and a text-only interface")
     parser.add_argument("--demo", action="store_true", help="play a full flight-recorder run")
+    parser.add_argument("--lang", choices=LANGUAGES, default="bg", help="interface language (default: bg)")
     args = parser.parse_args()
     if hasattr(sys.stdout, "reconfigure") and sys.stdout.encoding.lower() != "utf-8":
         sys.stdout.reconfigure(encoding="utf-8")
     with Terminal(args.plain) as term:
         sound = Sound(term.live, args.mute)
         try:
-            expedition = Expedition(term, sound, args.still)
+            expedition = Expedition(term, sound, args.still, args.lang)
             choice = "d" if args.demo else expedition.menu()
             if choice == "q":
                 return
             result = expedition.demo() if choice == "d" else expedition.game(choice)
+        except (EOFError, KeyboardInterrupt):
+            result = "quit"
         finally:
             sound.close()
-    print("BLACK BOX  /  " + {"won": "Master tape recovered.", "quit": "At the surface.",
-                              "lost": "Telemetry lost."}[result])
+    print("BLACK BOX  /  " + expedition.screen.text({"won": "Master tape recovered.", "quit": "At the surface.",
+                                                     "lost": "Telemetry lost."}[result]))
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (EOFError, KeyboardInterrupt):
-        print("\nAt the surface.")
+    main()

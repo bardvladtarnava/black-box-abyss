@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Tuple
 
+from locale_text import translate
+
 
 @dataclass(frozen=True)
 class Sector:
@@ -156,12 +158,20 @@ class Echo(Hero):
 
 
 class Dive:
-    def __init__(self, pilot):
+    def __init__(self, pilot, language="en"):
+        self.language = language
         self.pilot = pilot
         self.index = 0
         self.status = "active"
         self.salvage = False
         self._enter()
+
+    def text(self, source, **values):
+        return translate(self.language, source, **values)
+
+    @property
+    def cleared(self):
+        return self.index + int(self.status == "won")
 
     @property
     def sector(self):
@@ -208,21 +218,21 @@ class Dive:
     @property
     def sector_hint(self):
         if self.index == 0:
-            return "Cut twice to unlock Tune. The third cut risks a sonar counter."
+            return self.text("Cut twice to unlock Tune. The third cut risks a sonar counter.")
         if self.index == 1:
-            return "The crab seals its shell on pulse 5. Breach strips its armor for the fight."
+            return self.text("The crab seals its shell on pulse 5. Breach strips its armor for the fight.")
         if self.index == 2:
-            return "At two noise marks the eel hits +2. Tune or Brace to clear noise."
-        return "The Listener shields itself at half hull. Breach can disable the shield before it activates."
+            return self.text("At two noise marks the eel hits +2. Tune or Brace to clear noise.")
+        return self.text("The Listener shields itself at half hull. Breach can disable the shield before it activates.")
 
     def take_salvage(self, choice):
         if self.status != "active" or not self.salvage:
             return ""
         if choice == "1":
             self.pilot.pack.collect()
-            reward = "Spare cell stored."
+            reward = self.text("Spare cell stored.")
         elif choice == "2":
-            reward = f"Service bay restored {self.pilot.heal(8)} hull."
+            reward = self.text("Service bay restored {amount} hull.", amount=self.pilot.heal(8))
         else:
             return ""
         self.salvage = False
@@ -233,54 +243,55 @@ class Dive:
 
     def resolve(self, key, phrase=""):
         if self.status != "active":
-            return Turn("Dive ended.")
+            return Turn(self.text("Dive ended."))
         if key == "q":
             self.status = "quit"
-            return Turn("Ascent initiated.")
+            return Turn(self.text("Ascent initiated."))
         if key == "i":
-            return Turn(f"SCAN / Pulse cycle {'-'.join(map(str, self.sector.pulses))}. Acoustic signature {self.sector.song}.")
+            return Turn(self.text("Scan / Pulse cycle {pattern}. Acoustic signature {song}.",
+                                  pattern="-".join(map(str, self.sector.pulses)), song=self.sector.song))
         incoming = self.response
         if key == "a":
             event = Event("cutter", self.contact.damage(self.cutter_damage))
             self._noise += 1
-            message = f"Cutter hit for {event.points}."
+            message = self.text("Cutter hit for {amount}.", amount=event.points)
         elif key == "s":
             event = self.pilot.ability(self.contact, incoming)
             if event is None:
-                return Turn("Ability depleted. Select another action.")
+                return Turn(self.text("Ability depleted. Select another action."))
             self._noise = 0
-            message = "Anchor held. Pulse absorbed." if event.kind == "anchor" else f"Decoy returned {event.points} damage."
+            message = self.text("Anchor held. Pulse absorbed.") if event.kind == "anchor" else self.text("Decoy returned {amount} damage.", amount=event.points)
         elif key == "b":
             if not self.breach_ready:
-                return Turn("Breach is spent until the next sector.")
+                return Turn(self.text("Breach is spent until the next sector."))
             self.breach_ready = False
             event = Event("breach", self.contact.damage(7))
-            message = f"Breach hit for {event.points}. Armor disabled."
+            message = self.text("Breach hit for {amount}. Armor disabled.", amount=event.points)
         elif key == "g":
             self._noise = 0
             incoming = max(0, incoming - 4)
             event = Event("brace")
-            message = "Brace absorbed up to 4 damage. Noise cleared."
+            message = self.text("Brace absorbed up to 4 damage. Noise cleared.")
         elif key == "r":
             restored = self.pilot.pack.repair(self.pilot)
             if not restored:
-                return Turn("Repair needs hull damage and one cell.")
+                return Turn(self.text("Repair needs hull damage and one cell."))
             event = Event("repair", restored)
-            message = f"Cell fitted. Hull +{restored}."
+            message = self.text("Cell fitted. Hull +{amount}.", amount=restored)
         elif key == "f":
             if not self.can_tune:
-                return Turn("Two noise marks open the hydrophone.")
+                return Turn(self.text("Two noise marks open the hydrophone."))
             if phrase != self.sector.song:
-                return Turn("No harmonic match. Listen and try again.")
+                return Turn(self.text("No harmonic match. Listen and try again."))
             self._noise = 0
             event = Event("resonate", self.contact.damage(4))
-            message = f"Signature matched. Resonance hit for {event.points}; contact silenced."
+            message = self.text("Signature matched. Resonance hit for {amount}.", amount=event.points)
         else:
-            return Turn("Unknown key. Scan with I or strike with A.")
+            return Turn(self.text("Unknown key. Scan with I or strike with A."))
 
         self.salvage = False
         if self.contact.hull == 0:
-            tape = self.sector.tape
+            tape = self.text(self.sector.tape)
             if self.index == len(SECTORS) - 1:
                 self.status = "won"
             else:
@@ -288,7 +299,7 @@ class Dive:
                 self.pilot.pack.collect()
                 self.salvage = True
                 self._enter()
-                tape += "  [+1 cell]"
+                tape += "  [" + self.text("+1 cell") + "]"
             return Turn(tape, (event, Event("wreck")))
 
         events = [event]
@@ -297,12 +308,12 @@ class Dive:
             if self.noise == 3:
                 hit += 3
                 self._noise = 0
-                message += " SONAR LOCK."
+                message += " " + self.text("Sonar lock.")
             if hit:
                 events.append(Event("counter", self.pilot.damage(hit)))
-                message += f" Hull -{events[-1].points}."
+                message += " " + self.text("Hull −{amount}.", amount=events[-1].points)
         self.turn += 1
         if self.pilot.hull == 0:
             self.status = "lost"
-            message += " Telemetry lost."
+            message += " " + self.text("Telemetry lost.")
         return Turn(message, tuple(events))

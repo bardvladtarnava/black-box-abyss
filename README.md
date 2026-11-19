@@ -13,6 +13,10 @@ python play.py
 
 On macOS or Linux, use `python3 play.py` if that is your Python command. Pick **1** for Rivet or **2** for Echo. **D** plays an autonomous expedition. In a real terminal, keys respond immediately. Use the arrow keys or Tab to select a button and Enter to confirm. Each button shows its shortcut and a contextual explanation. A × marks a temporarily unavailable action. Windows Terminal, Terminal.app and UTF-8 Linux terminals can render the half-block pixel art. Around 100 columns and 30 rows gives both combatants and their instruments room. The interface adapts to resizing.
 
+The game starts in Bulgarian. Press **K** in the menu or during a dive and choose **1** for Bulgarian, **2** for Russian, or **3** for English. The switch leaves the current fight intact. You can also start with a specific language using `python play.py --lang en` or `--lang ru`.
+
+Press **P** to open the station map. Use arrows, Tab or **1–4** to inspect a sector. **✓** marks cleared sectors, **◆** marks your current sector and **○** marks locked depths. Cleared sectors let you reread their recovered tapes. The progress meter counts cleared sectors from **0/4** through **4/4**. Opening the map takes no combat turn.
+
 | Key | Action |
 | --- | --- |
 | A | Thrust with the cutter. Deal 5 damage before armor and add one noise mark. |
@@ -23,6 +27,8 @@ On macOS or Linux, use `python3 play.py` if that is your Python command. Pick **
 | F | At two noise marks, listen to the three-note call and answer using 1, 2 and 3. |
 | I | Inspect the upcoming pulse cycle and the contact's acoustic signature. |
 | M | Mute or restore both music and effects. |
+| P | Inspect the station map. |
+| K | Change the interface language. |
 | Q | End the expedition. |
 
 Inside the hydrophone, **1 / 2 / 3** are low / middle / high. **L** repeats the call, **Backspace** edits an incomplete phrase, and **X** returns to combat. The call is also printed. Take as long as you like. A wrong phrase has no cost.

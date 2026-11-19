@@ -203,13 +203,30 @@ class TerminalPlayback(unittest.TestCase):
             self.assertEqual(len(hit.pixels), W * H)
             self.assertGreater(sum(a != b for a, b in zip(idle.pixels, hit.pixels)), 200)
 
+    def run_console(self, *args, keys=""):
+        return subprocess.run([sys.executable, "play.py", "--plain", *args],
+                              cwd=os.path.dirname(os.path.abspath(__file__)), input=keys,
+                              capture_output=True, encoding="utf-8", timeout=6, check=True).stdout
+
     def test_console_replays_all_sectors(self):
-        result = subprocess.run([sys.executable, "play.py", "--plain", "--demo"],
-                                cwd=os.path.dirname(os.path.abspath(__file__)),
-                                capture_output=True, encoding="utf-8", timeout=6, check=True)
+        output = self.run_console("--demo", "--lang", "en")
         for label in ("FLOOD LOCK", "PUMP CATHEDRAL", "TAPE ARCHIVE", "RECORDER VAULT", "Master tape recovered."):
-            self.assertIn(label, result.stdout)
-        self.assertNotIn("\x1b", result.stdout)
+            self.assertIn(label, output)
+        self.assertNotIn("\x1b", output)
+
+    def test_bulgarian_default_and_localized_demo_completion(self):
+        for args, ending in (([], "Оригиналният запис е намерен."), (["--lang", "ru"], "Оригинал записи найден.")):
+            output = self.run_console("--demo", *args)
+            self.assertIn(ending, output)
+            for progress in ("0/4", "1/4", "2/4", "3/4", "4/4 · 100%"):
+                self.assertIn(progress, output)
+
+    def test_map_and_language_switch_keep_combat_state(self):
+        keys = "1\na\nk\n2\np\n2\np\nk\n3\na\np\np\na\np\n1\np\n2\nq\n"
+        output = self.run_console(keys=keys)
+        for text in ("Език (BG)", "Удар", "КАРТА", "Насосный зал · Закрыт", "DRONE  01/11",
+                     "1/4 · 25%", "TAPE 01", "At the surface."):
+            self.assertIn(text, output)
 
 
 if __name__ == "__main__":
