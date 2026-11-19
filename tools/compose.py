@@ -10,6 +10,10 @@ BEAT = 13230
 BAR = BEAT * 4
 TAU = math.tau
 ROOT = Path(__file__).resolve().parents[1] / "sound"
+ROOTS = ((38, 34, 41, 36), (38, 41, 36, 33), (38, 46, 41, 36), (38, 35, 34, 33),
+         (43, 39, 46, 41), (45, 48, 40, 43), (33, 36, 31, 38))
+KICKS = ((0, 2), (0, 1.75, 3), (0, 2.5), (0, 1.5, 2.75),
+         (0, 2.75, 3.25), (0, 2.5), (0, .75, 2, 3.25))
 
 
 def note(key):
@@ -71,23 +75,27 @@ def save(name, values):
 
 def compose_zone(zone):
     loop = [0.] * (BAR * 4)
-    roots = ((38, 34, 41, 36), (38, 41, 36, 33), (38, 46, 41, 36), (38, 35, 34, 33))[zone]
+    roots = ROOTS[zone]
     for bar, root in enumerate(roots):
         start = bar * BAR
         for chord_note in (root + 12, root + 19, root + 22):
             paste(loop, tone(chord_note, 2.8, "pad"), start, .086, True)
         for pos in (0, 1.5, 2.75):
             paste(loop, tone(root, .75, "bass"), start + int(BEAT * pos), .23, True)
-        for beat in ((0, 2), (0, 1.75, 3), (0, 2.5), (0, 1.5, 2.75))[zone]:
+        for beat in KICKS[zone]:
             paste(loop, tone(38, .34, "kick"), start + round(BEAT * beat), .27, True)
         for beat in (1, 3, 3.5):
             paste(loop, tone(57, .18, "shell"), start + round(BEAT * beat), .15, True)
         for step, offset in enumerate(((0, 7, 3), (0, 3, 10), (7, 3, 0), (0, 12, 7))[bar]):
-            pitch = root + 24 + offset + (12 if zone == 2 else 0)
+            pitch = root + 24 + offset + (12 if zone in (2, 4) else 0)
             glass = tone(pitch, .85, "glass")
+            if zone == 5 and step == 1:
+                continue
             place = start + round(BEAT * (.5 + step * .95 + .25 * (zone == 3)))
             paste(loop, glass, place, .13, True)
             paste(loop, glass, place + round(.27 * RATE), .041, True)
+            if zone == 6:
+                paste(loop, tone(pitch - 12, .6, "bass"), place + BEAT // 2, .10, True)
     save(f"depth{zone}", loop)
 
 
@@ -108,7 +116,7 @@ def effect(name, duration, freq, sweep=0, grit=0, decay=6, ring=0):
 
 def main():
     ROOT.mkdir(exist_ok=True)
-    for i in range(4):
+    for i in range(len(ROOTS)):
         compose_zone(i)
     pressure = [0.] * BAR
     for pos in (0, .32, 2, 2.32):

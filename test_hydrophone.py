@@ -2,14 +2,32 @@ import array
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
 from audio import FRAME_BYTES, Mixer
 from console import CombatView
-from dive import Dive, Echo, Rivet
+from dive import Dive, Echo, Rivet, SECTORS
 from ocean import H, W, arena
 from play import CLIPS, Expedition
+
+ROUTES = ((Rivet, "aaa2braa1aafa2asaaba2bsaafa2bfsaaa2baagrgga", 13),
+          (Echo, "aaa2braa1aafa2asaba2bsaa2bfsaa2baagrgga", 19))
+
+
+def console_route(rig, keys):
+    game = Dive(rig())
+    commands = ["1" if rig is Rivet else "2"]
+    for key in keys:
+        commands.append(key)
+        if game.salvage:
+            game.take_salvage(key)
+        else:
+            if key == "f":
+                commands.append(game.sector.song)
+            game.resolve(key, game.sector.song)
+    return "\n".join(commands) + "\n"
 
 
 def snapshot(game):
@@ -50,9 +68,8 @@ class HydrophoneRules(unittest.TestCase):
         self.assertEqual((game.contact.hull, game.pilot.hull, game.noise), (5, hull, 0))
 
     def test_recorded_wins_include_each_ability_and_repair(self):
-        routes = ((Rivet(), "aaa2braa1aafa2asaaba", 15),
-                  (Echo(), "aaa2braa1aafa2asaba", 21))
-        for pilot, keys, remaining in routes:
+        for rig, keys, remaining in ROUTES:
+            pilot = rig()
             game = Dive(pilot)
             for key in keys:
                 if key in "12":
@@ -123,7 +140,9 @@ class SoundScore(unittest.TestCase):
         names = {name for _, cues, _ in CLIPS.values() for _, name in cues}
         names.update(("reel", "ending", "lost", "note1", "note2", "note3", "pressure"))
         self.assertTrue(names.issubset(bank))
-        self.assertEqual(len({len(bank[f"depth{i}"]) for i in range(4)}), 1)
+        tracks = [bank[f"depth{i}"].tobytes() for i in range(len(SECTORS))]
+        self.assertEqual(len({len(track) for track in tracks}), 1)
+        self.assertEqual(len(set(tracks)), len(SECTORS))
 
     def test_stereo_score_and_cue_onsets(self):
         for cue, side in (("impact", "right"), ("enemy", "left")):
@@ -197,36 +216,64 @@ class TerminalPlayback(unittest.TestCase):
             self.assertEqual(snapshot(game), final)
 
     def test_scene_size_and_motion(self):
-        for sector in range(4):
+        for sector in range(len(SECTORS)):
             idle = arena(sector, "Rivet", 1)
             hit = arena(sector, "Rivet", 1, "counter", .58)
             self.assertEqual(len(hit.pixels), W * H)
             self.assertGreater(sum(a != b for a, b in zip(idle.pixels, hit.pixels)), 200)
 
-    def run_console(self, *args, keys=""):
-        return subprocess.run([sys.executable, "play.py", "--plain", *args],
-                              cwd=os.path.dirname(os.path.abspath(__file__)), input=keys,
-                              capture_output=True, encoding="utf-8", timeout=6, check=True).stdout
+    def run_console(self, *args, keys="", root=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            return subprocess.run([sys.executable, "play.py", "--plain", *args],
+                                  cwd=os.path.dirname(os.path.abspath(__file__)), input=keys,
+                                  env=dict(os.environ, BLACKBOX_DATA_DIR=root or temporary),
+                                  capture_output=True, encoding="utf-8", timeout=8, check=True).stdout
 
-    def test_console_replays_all_sectors(self):
-        output = self.run_console("--demo", "--lang", "en")
-        for label in ("FLOOD LOCK", "PUMP CATHEDRAL", "TAPE ARCHIVE", "RECORDER VAULT", "Master tape recovered."):
+    def test_keyboard_campaign_reaches_all_sectors(self):
+        rig, route, _ = ROUTES[0]
+        output = self.run_console("--lang", "en", keys=console_route(rig, route))
+        for label in [sector.room.upper() for sector in SECTORS] + ["Rescue complete."]:
             self.assertIn(label, output)
         self.assertNotIn("\x1b", output)
 
-    def test_bulgarian_default_and_localized_demo_completion(self):
-        for args, ending in (([], "Оригиналният запис е намерен."), (["--lang", "ru"], "Оригинал записи найден.")):
-            output = self.run_console("--demo", *args)
+    def test_bulgarian_default_and_russian_completion(self):
+        rig, route, _ = ROUTES[1]
+        for args, ending in (([], "Спасителната мисия завърши."), (["--lang", "ru"], "Спасательная миссия завершена.")):
+            output = self.run_console(*args, keys=console_route(rig, route))
             self.assertIn(ending, output)
-            for progress in ("0/4", "1/4", "2/4", "3/4", "4/4 · 100%"):
+            for progress in [f"{i}/7" for i in range(7)] + ["7/7 | 100%"]:
                 self.assertIn(progress, output)
 
     def test_map_and_language_switch_keep_combat_state(self):
         keys = "1\na\nk\n2\np\n2\np\nk\n3\na\np\np\na\np\n1\np\n2\nq\n"
         output = self.run_console(keys=keys)
-        for text in ("Език (BG)", "Удар", "КАРТА", "Насосный зал · Закрыт", "DRONE  01/11",
-                     "1/4 · 25%", "TAPE 01", "At the surface."):
+        for text in ("Език (BG)", "Удар", "КАРТА", "Насосный зал / Закрыт", "DRONE  01/11",
+                     "1/7 | 14%", "TAPE 01", "At the surface."):
             self.assertIn(text, output)
+
+    def test_preferences_and_mid_fight_resume_across_processes(self):
+        from storage import Logbook
+        with tempfile.TemporaryDirectory() as root:
+            self.run_console(keys="o\n1\n2\n2\n3\n4\n5\no\n1\na\ns\nb\nq\n", root=root)
+            book = Logbook(root)
+            self.assertEqual((book.settings.language, book.settings.sound, book.settings.motion,
+                              book.settings.pixels, book.settings.fullscreen), ("ru", False, False, "fine", False))
+            initial = book.resume.snapshot()
+            output = self.run_console(keys="1\nesc\nc\np\n7\np\nq\n", root=root)
+            self.assertIn("[C] Продолжить", output)
+            self.assertIn("Колодец приливов", output)
+            self.assertEqual(Logbook(root).resume.snapshot(), initial)
+            self.run_console(keys="c\n2\na\nq\n", root=root)
+            self.assertEqual(Logbook(root).resume.turn, 1)
+
+    def test_reopen_during_fight_and_use_the_saved_pulse(self):
+        from storage import Logbook
+        with tempfile.TemporaryDirectory() as root:
+            self.run_console(keys="2\na\nq\n", root=root)
+            output = self.run_console("--lang", "en", keys="c\ns\nq\n", root=root)
+            self.assertIn("Decoy returned 4 damage.", output)
+            game = Logbook(root).resume
+            self.assertEqual((game.contact.hull, game.pilot.hull, game.pilot.cells, game.turn), (2, 26, 1, 2))
 
 
 if __name__ == "__main__":

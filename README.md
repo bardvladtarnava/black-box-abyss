@@ -1,109 +1,81 @@
 # BLACK BOX
-### Hydrophone edition
 
-Pelagic Station has been dark for twelve years. Six minutes ago its recorder called you by name. Take a salvage rig through four flooded compartments and find the original tape.
+Pelagic Station has been silent for twelve years. Six minutes ago it called you by name. Pilot a salvage rig through seven flooded sectors, fight the machines and answer the distress call at 3,100 m.
 
-## Play
+![Rivet faces the Wire Siren in the Choir trench. Its next three beats are 3, 0 and 7.](art/choir-trench.png)
 
-Extract the entire archive. On Windows, double-click **PLAY-WINDOWS.cmd** with Python 3.8+ installed. From an open terminal in this directory, run:
+## Launch
 
-```sh
-python play.py
-```
+Extract the whole archive. With Python 3.8 or newer installed, double-click **PLAY-WINDOWS.cmd**. The launcher requests a new full-screen Windows Terminal window. On a classic Windows console it requests full screen and falls back to maximizing the window. To play from a terminal in the project directory, run `python play.py`. On macOS and Linux you can use `python3 play.py`.
 
-On macOS or Linux, use `python3 play.py` if that is your Python command. Pick **1** for Rivet or **2** for Echo. **D** plays an autonomous expedition. In a real terminal, keys respond immediately. Use the arrow keys or Tab to select a button and Enter to confirm. Each button shows its shortcut and a contextual explanation. A × marks a temporarily unavailable action. Windows Terminal, Terminal.app and UTF-8 Linux terminals can render the half-block pixel art. Around 100 columns and 30 rows gives both combatants and their instruments room. The interface adapts to resizing.
+The first launch is in **Bulgarian**. Press **K**, then **2** for Russian or **3** for English. **1** switches back to Bulgarian. Press **1** at the main menu for Rivet or **2** for Echo. Arrows or Tab move the selection and Enter activates it. Shortcuts use Latin letters.
 
-The game starts in Bulgarian. Press **K** in the menu or during a dive and choose **1** for Bulgarian, **2** for Russian, or **3** for English. The switch leaves the current fight intact. You can also start with a specific language using `python play.py --lang en` or `--lang ru`.
+## First dive
 
-Press **P** to open the station map. Use arrows, Tab or **1–4** to inspect a sector. **✓** marks cleared sectors, **◆** marks your current sector and **○** marks locked depths. Cleared sectors let you reread their recovered tapes. The progress meter counts cleared sectors from **0/4** through **4/4**. Opening the map takes no combat turn.
+Watch **Next pulse** before choosing a move. It shows the regular incoming damage for this turn. The two numbers after it show the next base beats. There is no reaction timer.
 
-| Key | Action |
+1. Start as **Rivet**. At the flood lock, press **A** twice. The lantern drone has 1 hull left and the hydrophone lights up.
+2. Press **F**, then **1**, **3**, **2**. The notes are printed as well as played. Matching them finishes the drone. A third **A** also finishes it before it can return fire.
+3. At the service bay, choose **2** to repair your rig, or **1** for a spare cell. At the pump cathedral, try **B** to break the crab's closed shell.
+
+| Key | In combat |
 | --- | --- |
-| A | Thrust with the cutter. Deal 5 damage before armor and add one noise mark. |
-| S | Activate the rig's special ability. Clear noise and avoid the incoming pulse. |
-| B | Breach for 7 damage and strip armor for the rest of the sector. One charge per sector. |
-| G | Brace to clear noise and reduce the incoming strike by 4. |
-| R | Consume one cell to repair up to 12 hull. A surviving contact can respond. |
-| F | At two noise marks, listen to the three-note call and answer using 1, 2 and 3. |
-| I | Inspect the upcoming pulse cycle and the contact's acoustic signature. |
-| M | Mute or restore both music and effects. |
-| P | Inspect the station map. |
-| K | Change the interface language. |
-| Q | End the expedition. |
+| A | Cut for 5 before armor, gaining one noise mark. A third consecutive noise mark grants a surviving enemy +3 on that hit. |
+| S | Rivet absorbs the pulse with one of two anchors per sector. Echo spends one cell to reflect the announced damage. Both clear noise. |
+| B | Breach for 7 and disable armor for the rest of the sector. One use per sector. |
+| G | Brace to clear noise and absorb up to 4 damage. |
+| R | Spend a cell to restore up to 12 hull. A surviving contact can respond. |
+| F | At two noise marks, answer the contact's three-note signature. A match deals 4 and cancels its reply. The Siren has a special opening. |
+| I | Inspect the pulse cycle, signature and sector tactic. |
+| P | Open the map. Browse with arrows, Tab or 1–7. Read recovered recordings by selecting a cleared sector. |
+| O / K / M | Open settings, choose a language, or toggle music and effects. |
+| Q | Save the dive and exit. Choose **C** on the next launch to continue. |
 
-Inside the hydrophone, **1 / 2 / 3** are low / middle / high. **L** repeats the call, **Backspace** edits an incomplete phrase, and **X** returns to combat. The call is also printed. Take as long as you like. A wrong phrase has no cost.
+In the hydrophone, **L** replays the call, **Backspace** edits the answer and **X** returns to combat. An incorrect phrase costs nothing. On the map, **[x]** means cleared, **[>]** current and **[.]** locked.
 
-## Encounters and turn rules
+## The descent
 
-Both rigs start with 28 hull and two cells. Rivet carries two anchors per compartment. An anchor absorbs the incoming strike; bracing on a strong pulse makes more sense than bracing on a weak one. Echo trades one cell for a decoy that redirects the displayed incoming pulse. Every decoy uses a cell that could otherwise repair the rig.
+| Depth | Sector | Contact | Read the fight |
+| ---: | --- | --- | --- |
+| 180 m | Flood lock | Lantern drone | The alternating short and long pulses introduce noise and tuning. |
+| 460 m | Pump cathedral | Piston crab | Its shell closes on pulse 5. Breach removes the armor. |
+| 790 m | Tape archive | Spindle eel | It adds 2 damage at two noise marks. |
+| 1,200 m | Recorder vault | The Listener | Its shield activates at half hull. |
+| 1,680 m | Glass reef | Kiln Nautilus | On pulse 1 the shell opens to vent. The cutter hits for 8. |
+| 2,240 m | Choir trench | Wire Siren | A silent beat opens the hydrophone at any noise level. Answer for 8 before the strings tighten. |
+| 3,100 m | Tidal well | The Tide Crown | At half hull the beat changes to 8 / 0 / 7. Brace on either heavy beat to send 4 damage back. |
 
-| Depth | Contact | Hull | Repeating base pulses | Signature |
-| --- | --- | ---: | --- | --- |
-| 180 m · Flood lock | Lantern drone | 11 | 2, 4 | 1–3–2 |
-| 460 m · Pump cathedral | Piston crab | 16 | 5, 1, 2 | 2–1–1 |
-| 790 m · Tape archive | Spindle eel | 19 | 1, 3, 6 | 3–1–2 |
-| 1,200 m · Recorder vault | The Listener | 25 | 2, 6, 3 | 1–2–3 |
+Both rigs start with 28 hull and two cells. Every cleared non-final sector grants one cell and a service choice. Your hull and cells carry forward. Anchors and Breach reload at each new sector.
 
-The crab closes its shell on its strongest pulse, shaving 3 damage off the cutter. The eel hits for 2 extra at two noise marks. The Listener activates armor at half hull, reducing cutter damage by 2. Breach and the acoustic abilities bypass armor. The HUD previews the cutter’s actual damage and the incoming pulse.
+## Progress and display
 
-The pilot acts first. With two noise marks, a matching phrase deals 4 damage, clears noise and silences the contact for that turn. Another cutter strike deals up to 5. If the target survives that third strike it gets a 3-point sonar bonus, and the meter resets. For example, an unarmored contact with 5 hull can be finished immediately with the cutter. Against one with 6 hull, resonance leaves it at 2 and avoids its reply. Repair retains noise. Scan, listening, mute, invalid input and unavailable commands leave combat state unchanged.
+The game automatically saves each resolved turn and service choice. Continue restores hull on both sides, the enemy's exact beat, noise, inventory and ability charges. You can also leave an unclaimed service reward for the next session. Defeat lets you retry the same sector from its entrance. The surface map remembers the deepest clearance, including all recovered tapes after victory. Starting a new dive over an active one asks for confirmation.
 
-A finishing hit prevents retaliation. Each cleared non-final compartment awards a cell and opens a service bay. Choose an extra cell or up to 8 hull before continuing. The next contact refreshes anchors, Breach and noise. Current hull and inventory carry over. Zero hull loses the dive. Recovering the final reel wins it. Combat rules also run with redirected input or plain line input.
+**O** opens settings on the surface, in combat, in the service bay and at the hydrophone. Sound, animation, language, rendering and the regular or bold instrument type change immediately. Window mode applies on the next Windows launch. Health and noise always use plain keyboard characters, such as `[######....]`.
 
-## Sound and display
+| Drawing mode | Appearance |
+| --- | --- |
+| Color cells | The default. Colored backgrounds paint each cell using ordinary spaces. |
+| Fine pixels | A half-block glyph fits two vertical pixels into each cell. |
+| ASCII shading | Brightness is drawn with a ramp of ordinary characters. Also available with `NO_COLOR=1`. |
 
-Four original looping arrangements share a 100 BPM pulse. The mixer crossfades at sector boundaries. Two noise marks or low hull bring up a heartbeat. A cutter hitting a target has a rightward stereo accent; an incoming strike lands on the pilot's side. Each three-note call uses the same pitches on the score and the playable hydrophone.
+Classic Windows Console Host offers **Consolas**, **Lucida Console** or the original host font in the game's settings. Windows Terminal uses the font configured in its profile. The game restores the classic console font when it exits normally.
 
-The game uses only Python's standard library. It reads bundled WAV samples and streams stereo PCM to Windows WaveOut, macOS AudioQueue, or a Linux SDL2 / PulseAudio / aplay output when available. Actual speaker latency depends on the OS and audio device. The HUD shows **off-line** if output is unavailable. Listening, matching pitches and all combat remain accessible visually.
+Settings and the campaign are stored separately in `settings.json` and `campaign.json`. The Windows folder is `%LOCALAPPDATA%\BlackBoxAbyss`. macOS uses `~/Library/Application Support/BlackBoxAbyss`. Linux uses `$XDG_DATA_HOME/black-box-abyss`, or `~/.local/share/black-box-abyss`. Set `BLACKBOX_DATA_DIR` to use another directory. These command-line options apply to a single launch.
 
 ```sh
-python play.py --demo
+python play.py --lang ru
 python play.py --mute
 python play.py --still
 python play.py --plain
-python -m unittest -v
 ```
 
-Set `NO_COLOR=1` for monochrome rendering. The pixel scenes are drawn in Python; lighting, joint movement, pressure rings and debris are generated for each frame. To regenerate the bundled score from its Python source, run `python tools/compose.py`.
+## Sound and code
 
-## Object design
+Seven original scores share a 100 BPM clock. The mixer crossfades at sector boundaries and adds a heartbeat when the receiver opens or the rig reaches low hull. Effects follow the visual impact frame. The hydrophone displays every note for silent play. Windows WaveOut, macOS AudioQueue and available Linux audio backends play the bundled PCM samples. To regenerate them from the synthesizer, run `python tools/compose.py`.
 
-| Principle | Example from the implementation |
-| --- | --- |
-| Encapsulation | `self.contact.damage(5)` clamps incoming damage and returns the amount actually taken. Hull and its maximum are read-only properties. |
-| Inheritance | `class Echo(Hero)` and `class Rivet(Hero)` reuse Character's bounds and Hero's inventory. |
-| Polymorphism | `self.pilot.ability(self.contact, incoming)` dispatches through the Hero interface. |
-| Composition | Each Hero constructs `self.pack = Inventory()`, which owns a distinct collection of Cell instances. |
-
-`dive.py` resolves input-free combat. A successful turn returns the ordered events, including the exact damage or repair. `play.py` schedules each event's sound and visual beats. `console.py` handles terminal input, display and temporary hull readings. `ocean.py` draws the artwork. `audio.py` mixes the score and owns the output device.
-
-## Verification
-
-Run the suite from the project directory. The following results were observed during release verification.
-
-| Setup | Expected | Actual |
-| --- | --- | --- |
-| Apply 99 damage and healing to a 10-hull character; then try negative amounts | Bounds 0 and 10; both negative changes rejected | Passed |
-| Scan, mistype a key, repair a full rig, exhaust both anchors | No extra turn or state change | Passed |
-| Repair with a cell, spend the last cell, construct another rig | Cell removed once, empty ability rejected, new pack independent | Passed |
-| Attack a 40-hull contact three times | Third counter gains 3; pilot has 17 hull, noise returns to zero | Passed |
-| Enter a wrong phrase or try the receiver without sufficient noise | No resource or turn consumed | Passed |
-| Match a signature on a surviving or finishing hit | One resonance event; no counter; one reward on a sector clear | Passed |
-| Complete the recorded routes using strikes, repairs, rig abilities and matching | Both pilots recover the master tape | Rivet ended with 15 hull and Echo with 21 |
-| Inspect the crab, eel and Listener and claim salvage twice | Armor responds to Breach, noise amplifies the eel, the Listener shields at half hull, one service reward per clearance | Passed |
-| Deplete hull or quit, then issue more commands | End state stays final | Passed |
-| Mix an impact and a counter, change depth, engage danger, mute and resume | Cues favour opposite speakers; score changes; mute emits zero samples and preserves the playhead | Passed |
-| Inspect event cue times and replay HUD damage | Sound trigger lands in its scheduled visual frame; display cannot change game state | Passed |
-| Resize a live terminal, tune correctly after a wrong phrase, run a full animated demo | Immediate keys, intact display and all four encounters | Passed in a Linux pseudo-terminal with simulated audio output |
-
-The Linux SDL output path was exercised with a virtual device. Windows and macOS audio paths were implemented but were not tested on physical hardware. The stereo preview is rendered from the same game frames, cue schedule and mixer.
-
-## Design revision and history
-
-The original prototype showed a static character between commands and moved the whole text sprite when it struck. The revised design separates resolved turns from their presentation. A hit can now have anticipation, impact, recoil and a positioned sound while input timing has no effect on the turn outcome. The hydrophone uses an untimed three-note reply so the musical mechanic remains playable on a muted computer.
-
-The archive includes `history.bundle` with the project's Git history. To open it as a working repository from the extracted folder:
+Python's standard library runs the game and its tests. `Dive` resolves turns, `Hero` delegates its special move to `Rivet` or `Echo`, and each rig owns an `Inventory` of cells. Run the full suite from the game directory.
 
 ```sh
-git clone -b main history.bundle black-box
+python -m unittest -v
 ```

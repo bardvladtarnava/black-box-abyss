@@ -25,6 +25,12 @@ SECTORS = (
            "TAPE 03 / The oldest reel is labelled RESCUE DRILL. It is in your handwriting."),
     Sector(1200, "Recorder vault", "The Listener", 25, (2, 6, 3), "123",
            "MASTER / It learned your voice from a training tape. You tap the glass three times. Something taps back."),
+    Sector(1680, "Glass reef", "Kiln Nautilus", 26, (4, 6, 1), "231",
+           "TAPE 05 / The nautilus opens. Inside its shell, an air gauge is still ticking."),
+    Sector(2240, "Choir trench", "Wire Siren", 29, (3, 0, 7, 2), "322",
+           "TAPE 06 / Between two notes you hear breathing. The distress call came from below the station."),
+    Sector(3100, "Tidal well", "The Tide Crown", 34, (2, 5, 3), "213",
+           "LAST REEL / Three taps. The hatch opens from inside. This time a hand takes yours."),
 )
 
 
@@ -75,8 +81,8 @@ class Cell:
 
 
 class Inventory:
-    def __init__(self):
-        self._cells = [Cell(), Cell()]
+    def __init__(self, count=2):
+        self._cells = [Cell() for _ in range(count)]
 
     def __len__(self):
         return len(self._cells)
@@ -135,6 +141,13 @@ class Rivet(Hero):
     def ability_ready(self):
         return self._charges > 0
 
+    @property
+    def anchors(self):
+        return self._charges
+
+    def load_anchors(self, count):
+        self._charges = count
+
     def ability(self, contact, pulse):
         if not self._charges:
             return None
@@ -183,18 +196,79 @@ class Dive:
         self.breach_ready = True
         self.pilot.enter()
 
+    def snapshot(self):
+        if self.status != "active":
+            raise ValueError("Only a live dive can be suspended")
+        return {
+            "rig": self.pilot.name, "sector": self.index, "turn": self.turn,
+            "hull": self.pilot.hull, "contact": self.contact.hull, "cells": self.pilot.cells,
+            "noise": self.noise, "breach": self.breach_ready, "service": self.salvage,
+            "anchors": self.pilot.anchors if isinstance(self.pilot, Rivet) else 0,
+        }
+
+    @classmethod
+    def from_snapshot(cls, data, language="bg"):
+        if not isinstance(data, dict) or data.get("rig") not in ("Rivet", "Echo"):
+            raise ValueError("Unknown rig")
+
+        def number(key, low, high):
+            value = data.get(key)
+            if type(value) is not int or not low <= value <= high:
+                raise ValueError(key)
+            return value
+
+        pilot = Rivet() if data["rig"] == "Rivet" else Echo()
+        game = cls(pilot, language)
+        game.index = number("sector", 0, len(SECTORS) - 1)
+        game._enter()
+        game.turn = number("turn", 0, 2**53)
+        pilot.damage(pilot.maximum - number("hull", 1, pilot.maximum))
+        game.contact.damage(game.sector.hull - number("contact", 1, game.sector.hull))
+        pilot.pack = Inventory(number("cells", 0, 2 + 2 * game.index))
+        game._noise = number("noise", 0, 2)
+        anchors = number("anchors", 0, 2 if isinstance(pilot, Rivet) else 0)
+        if isinstance(pilot, Rivet):
+            pilot.load_anchors(anchors)
+        if type(data.get("breach")) is not bool or type(data.get("service")) is not bool:
+            raise ValueError("Invalid equipment or service flag")
+        game.breach_ready, game.salvage = data["breach"], data["service"]
+        if game.salvage and (not game.index or game.turn or game.contact.hull != game.sector.hull
+                             or game.noise or not game.breach_ready):
+            raise ValueError("Invalid service stop")
+        return game
+
     @property
     def noise(self):
         return self._noise
 
     @property
+    def crown_open(self):
+        return self.index == 6 and self.contact.hull <= self.sector.hull // 2
+
+    @property
+    def pattern(self):
+        return (8, 0, 7) if self.crown_open else self.sector.pulses
+
+    @property
     def pulse(self):
-        pattern = self.sector.pulses
+        pattern = self.pattern
         return pattern[self.turn % len(pattern)]
 
     @property
     def can_tune(self):
-        return self.status == "active" and self.noise == 2
+        return self.status == "active" and (self.noise == 2 or self.siren_rest)
+
+    @property
+    def siren_rest(self):
+        return self.index == 5 and self.pulse == 0
+
+    @property
+    def resonance_damage(self):
+        return 8 if self.siren_rest else 4
+
+    @property
+    def opening(self):
+        return (self.index == 4 and self.pulse == 1) or self.siren_rest or self.crown_open
 
     @property
     def armor(self):
@@ -204,11 +278,23 @@ class Dive:
             return 3
         if self.index == 3 and self.contact.hull <= self.contact.maximum // 2:
             return 2
+        if self.index == 4 and self.pulse != 1:
+            return 3
         return 0
 
     @property
     def cutter_damage(self):
-        return 5 - self.armor
+        return (8 if self.index == 4 and self.pulse == 1 else 5) - self.armor
+
+    @property
+    def tell(self):
+        if self.index == 4:
+            return self.text("VENT OPEN / Cut for 8" if self.pulse == 1 else "SHELL TURNING")
+        if self.index == 5:
+            return self.text("REST / Answer for 8" if self.siren_rest else "STRINGS UNDER TENSION")
+        if self.index == 6:
+            return self.text("INNER TIDE / Brace returns 4 on a heavy beat" if self.crown_open else "OUTER TIDE")
+        return ""
 
     @property
     def response(self):
@@ -223,7 +309,13 @@ class Dive:
             return self.text("The crab seals its shell on pulse 5. Breach strips its armor for the fight.")
         if self.index == 2:
             return self.text("At two noise marks the eel hits +2. Tune or Brace to clear noise.")
-        return self.text("The Listener shields itself at half hull. Breach can disable the shield before it activates.")
+        hints = (
+            "The Listener shields itself at half hull. Breach can disable the shield before it activates.",
+            "The shell opens on pulse 1. Cut for 8 while it vents. Breach strips the closed shell.",
+            "On a silent beat, Tune works at any noise and hits for 8. Save your cells for the next beat.",
+            "At half hull the tide changes to 8 / 0 / 7. Brace on 7 or 8 to return 4 damage.",
+        )
+        return self.text(hints[self.index - 3])
 
     def take_salvage(self, choice):
         if self.status != "active" or not self.salvage:
@@ -249,7 +341,7 @@ class Dive:
             return Turn(self.text("Ascent initiated."))
         if key == "i":
             return Turn(self.text("Scan / Pulse cycle {pattern}. Acoustic signature {song}.",
-                                  pattern="-".join(map(str, self.sector.pulses)), song=self.sector.song))
+                                  pattern="-".join(map(str, self.pattern)), song=self.sector.song))
         incoming = self.response
         if key == "a":
             event = Event("cutter", self.contact.damage(self.cutter_damage))
@@ -269,9 +361,11 @@ class Dive:
             message = self.text("Breach hit for {amount}. Armor disabled.", amount=event.points)
         elif key == "g":
             self._noise = 0
+            returned = self.contact.damage(4) if self.crown_open and incoming >= 7 else 0
             incoming = max(0, incoming - 4)
-            event = Event("brace")
-            message = self.text("Brace absorbed up to 4 damage. Noise cleared.")
+            event = Event("brace", returned)
+            message = self.text("Grounded the tide. Returned 4 damage." if returned else
+                                "Brace absorbed up to 4 damage. Noise cleared.")
         elif key == "r":
             restored = self.pilot.pack.repair(self.pilot)
             if not restored:
@@ -284,7 +378,7 @@ class Dive:
             if phrase != self.sector.song:
                 return Turn(self.text("No harmonic match. Listen and try again."))
             self._noise = 0
-            event = Event("resonate", self.contact.damage(4))
+            event = Event("resonate", self.contact.damage(self.resonance_damage))
             message = self.text("Signature matched. Resonance hit for {amount}.", amount=event.points)
         else:
             return Turn(self.text("Unknown key. Scan with I or strike with A."))

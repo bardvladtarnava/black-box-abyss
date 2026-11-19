@@ -14,8 +14,10 @@ PLATE = 0xca8447
 BRASS = 0xf3b85b
 PALE = 0xffdf99
 RED = 0xe1746b
-DEEP = (0x132f41, 0x173530, 0x262d46, 0x1e2035)
-LIGHT = (0x377477, 0x59745f, 0x525672, 0x594356)
+DEEP = (0x132f41, 0x173530, 0x262d46, 0x1e2035, 0x12374a, 0x251d42, 0x12232d)
+LIGHT = (0x377477, 0x59745f, 0x525672, 0x594356, 0x427f91, 0x70547f, 0x4e605f)
+ACCENTS = (CYAN, 0xeeb176, 0xb4b7ff, 0xf59b99, 0x8fe9ff, 0xf5b0ed, 0xffbf78)
+ANCHOR_Y = (25, 30, 25, 23, 25, 23, 24)
 TAU = 2 * math.pi
 
 
@@ -81,7 +83,7 @@ class Raster:
                 self.rect(math.ceil(a), y, math.floor(b) - math.ceil(a) + 1, 1, color)
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=len(DEEP))
 def backdrop(zone):
     rng = random.Random(937 + zone)
     c = Raster()
@@ -119,7 +121,7 @@ def backdrop(zone):
                 c.dot(x + 14, y + 1, mix(rim, CYAN, .37))
         for x in (9, 52, 81):
             c.path([(x, 0), (x + 7, 5), (x + 20, 7), (x + 28, 0)], shadow)
-    else:
+    elif zone == 3:
         for r in (11, 15, 22, 24):
             c.ring(73, 17, r * 1.32, r, rim if r == 22 else steel)
         for i in range(12):
@@ -128,6 +130,30 @@ def backdrop(zone):
                    73 + 28 * math.cos(a), 17 + 21 * math.sin(a), steel)
         for x in (9, 13, 130, 134):
             c.rect(x, 0, 2, H, shadow)
+    elif zone == 4:
+        for x in range(-8, W, 13):
+            end = rng.randrange(7, 24)
+            c.poly([(x, 0), (x + 10, 0), (x + 4, end)], steel)
+            c.line(x + 9, 0, x + 4, end, rim)
+        for x in (0, 14, 48, 68, 118, 136):
+            tip = rng.randrange(18, 33)
+            c.poly([(x - 8, 43), (x + 3, tip), (x + 10, 42)], shadow)
+            c.line(x + 3, tip, x - 2, 42, rim)
+    elif zone == 5:
+        for x in (5, 22, 48, 79, 118, 138):
+            c.path([(x - 15, 0), (x - 8, 8), (x, 12), (x + 8, 8), (x + 15, 0)], steel, 2)
+            length = rng.randrange(15, 36)
+            c.line(x, 12, x, length, rim)
+            c.disk(x, length, 2, 1, rim)
+        for x in range(-8, W, 19):
+            c.poly([(x, 43), (x + 6, 29), (x + 10, 37), (x + 16, 31), (x + 19, 43)], shadow)
+    else:
+        for r in (11, 17, 24, 34, 45):
+            c.ring(70, 13, r, r * .56, rim if r == 24 else steel)
+        c.disk(70, 13, 10, 5, shadow)
+        for x in (-6, 11, 46, 82, 121, 142):
+            c.poly([(x - 3, 0), (x + 3, 0), (x, 8), (x - 1, 24)], shadow)
+            c.path([(x - 6, 42), (x + 2, 35), (x + 7, 23)], steel, 2)
     for x in range(W):
         floor = 40 + round(1.7 * math.sin(x * .09) + .7 * math.cos(x * .25))
         c.rect(x, floor, 1, H - floor, shadow)
@@ -271,7 +297,67 @@ def listener(c, x, y, t, snap):
     c.disk(x - 5, y - 4, 2, 3, WHITE)
 
 
-CREATURES = (lantern, crab, eel, listener)
+def nautilus(c, x, y, t, snap):
+    for i in range(5):
+        tip = y + 4 + i * 2 + math.sin(t * 3 + i) * 2
+        c.path([(x - 6, y + 1), (x - 14, y + i), (x - 20 - snap, tip)], 0xefad73 if i % 2 else PALE)
+    c.disk(x + 2, y - 2, 13, 12, 0x284356)
+    c.disk(x + 2, y - 3, 12, 11, 0xa9d8d8)
+    c.ring(x + 2, y - 3, 12, 11, 0xdef4da)
+    spiral = []
+    for step in range(89):
+        a = step / 7.7 + t * .15
+        r = 1 + step * .118
+        spiral.append((x + 2 + math.cos(a) * r, y - 3 + math.sin(a) * r * .90))
+        if step > 52 and step % 5 == 0:
+            c.line(*spiral[-1], x + 2 + math.cos(a + .28) * 12, y - 3 + math.sin(a + .28) * 11, 0x507d83)
+    c.path(spiral, 0x315a66, 2)
+    c.disk(x - 9, y + 2, 3, 2, INK)
+    c.dot(x - 10, y + 1, GOLD)
+
+
+def siren(c, x, y, t, snap):
+    for side in (-1, 1):
+        outer = x + side * (20 + snap)
+        c.poly([(x, y - 5), (outer, y - 13), (outer - side * 4, y + 3),
+                (x + side * 6, y + 10)], 0x584362)
+        c.path([(x, y - 3), (outer, y - 13), (outer - side * 4, y + 2),
+                (x + side * 5, y + 11)], 0xd68aca, 2)
+        for i in range(3, 17, 3):
+            u = x + side * i
+            c.line(u, y - 4 - i * .42, u + math.sin(t * 5 + i) * 2, y + 9 - i * .32, 0xf2c3dd)
+    for i in range(3):
+        c.path([(x + i, y + 5), (x - 3 + i, y + 12),
+                (x + i + math.sin(t * 2 + i) * 4, y + 17)], 0xb782b4)
+    c.disk(x, y - 2, 5, 7, 0x43394d)
+    c.poly([(x - 4, y - 4), (x, y - 11), (x + 4, y - 4), (x, y + 3)], 0xe4b1d3)
+    c.line(x - 2, y - 3, x + 2, y - 3, INK)
+    c.dot(x - 1, y - 3, WHITE)
+
+
+def crown(c, x, y, t, snap):
+    for i in range(8):
+        a = i * TAU / 8 + t * .32
+        rx, ry = math.cos(a), math.sin(a)
+        base = x + rx * 13, y + ry * 10
+        elbow = x + rx * (18 + snap), y + ry * 14
+        tip = elbow[0] - ry * 6, elbow[1] + rx * 4
+        c.path([base, elbow, tip], 0xb17d52, 2)
+        c.line(tip[0], tip[1], tip[0] + rx * 3, tip[1] + ry * 3, PALE)
+    c.disk(x, y, 13, 10, 0x26383c)
+    c.ring(x, y, 12, 9, BRASS)
+    c.ring(x, y, 9, 7, 0x879e87)
+    for i in range(6):
+        a = i * TAU / 6 - t * .65
+        points = [(x + 9 * math.cos(a), y + 7 * math.sin(a)),
+                  (x + 8 * math.cos(a + .7), y + 6 * math.sin(a + .7)),
+                  (x + 3 * math.cos(a + 1.3), y + 2 * math.sin(a + 1.3))]
+        c.poly(points, 0x68988d if i % 2 else 0xb9af7e)
+    c.disk(x, y, 3, 2, CYAN)
+    c.dot(x, y, WHITE)
+
+
+CREATURES = (lantern, crab, eel, listener, nautilus, siren, crown)
 
 
 def burst(c, x, y, age, color, count=19):
@@ -313,7 +399,7 @@ def contact_pose(zone, kind, p):
     return 4 * math.sin(p * math.pi), 0, round(2 * lunge)
 
 
-def arena(zone, hero, clock, kind="idle", p=0):
+def arena(zone, hero, clock, kind="idle", p=0, opening=False):
     c = Raster(list(backdrop(zone)))
     water(c, clock)
     base_y = 25
@@ -327,8 +413,8 @@ def arena(zone, hero, clock, kind="idle", p=0):
     if kind in ("cutter", "decoy", "resonate"):
         dx += (ease(.47, .53, p) - ease(.61, .9, p)) * 4
     enemy_x = 105 + dx
-    enemy_y = (25, 30, 25, 23)[zone] + dy
-    if zone in (0, 2, 3):
+    enemy_y = ANCHOR_Y[zone] + dy
+    if zone != 1:
         enemy_y += math.sin(clock * 1.9) * 1.6
     if kind == "counter":
         player_x -= (ease(.54, .60, p) - ease(.68, .96, p)) * 5
@@ -341,6 +427,18 @@ def arena(zone, hero, clock, kind="idle", p=0):
     rig(c, hero, player_x, player_y, clock, extension, guard, surge if kind == "cutter" else 0)
     if kind != "wreck" or p < .55 and int(p * 18) % 2 == 0:
         CREATURES[zone](c, enemy_x, enemy_y, clock, snap)
+        if opening:
+            if zone == 4:
+                c.disk(enemy_x + 2, enemy_y - 3, 5, 4, INK)
+                c.ring(enemy_x + 2, enemy_y - 3, 5, 4, GOLD)
+                c.disk(enemy_x + 2, enemy_y - 3, 2, 2, PALE)
+            elif zone == 5:
+                for r in (5, 9):
+                    c.ring(enemy_x, enemy_y - 15, r, r * .36, ACCENTS[5])
+            elif zone == 6:
+                c.disk(enemy_x, enemy_y, 7, 5, INK)
+                c.ring(enemy_x, enemy_y, 7, 5, RED)
+                c.disk(enemy_x, enemy_y, 3, 2, PALE)
     if kind == "cutter" and .38 < p < .8:
         c.path([(player_x + 13, 32), (player_x + 26, 27), (enemy_x - 6, 20)],
                WHITE if p < .52 else CYAN, 2 if p < .55 else 1)
@@ -383,6 +481,18 @@ def arena(zone, hero, clock, kind="idle", p=0):
             elif zone == 3:
                 for r in (0, 5, 10):
                     pressure_wave(c, front + r, 24, 5 + r, RED)
+            elif zone == 4:
+                for i in range(3):
+                    u, v = front + i * 5, 24 + (i - 1) * 4
+                    c.poly([(u - 4, v), (u + 5, v - 2), (u + 2, v + 2)], ACCENTS[4])
+            elif zone == 5:
+                for i in (-1, 0, 1):
+                    c.path([(u, 25 + i * 3 + math.sin((u - front) * .32 + p * 10) * 2)
+                            for u in range(round(front), 102, 2)], ACCENTS[5] if i else WHITE)
+            elif zone == 6:
+                for i in (-1, 1):
+                    c.path([(enemy_x - 9, enemy_y + i * 4), (front + 12, 24 + i * 7),
+                            (front, 24 + i), (front + 5, 24 + i * 5)], BRASS, 2)
             elif travel > .85:
                 c.path([(32, 29), (40, 22), (enemy_x - 10, 24)], PALE, 2)
         if p > .54:
