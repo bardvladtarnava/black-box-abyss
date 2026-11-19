@@ -3,7 +3,7 @@ import sys
 import time
 
 from audio import Sound
-from console import CombatView, Display, Terminal
+from console import CombatView, Display, Terminal, combat_actions
 from dive import Dive, Echo, Rivet
 
 FPS = 20
@@ -15,6 +15,8 @@ CLIPS = {
     "decoy": (.80, ((.1, "echo"), (IMPACT_PHASE["decoy"], "impact")), "Acoustic decoy / return to sender"),
     "repair": (.64, ((0., "heal"),), "Field repair / cell transfer"),
     "resonate": (.90, ((0., "chord"), (IMPACT_PHASE["resonate"], "echo")), "Standing wave / signature matched"),
+    "breach": (.85, ((0., "swing"), (.48, "clang")), "Breach / armor ruptured"),
+    "brace": (.43, ((.2, "clang"),), "Brace / noise vented"),
     "wreck": (.84, ((.06, "wreck"),), "Contact silent / salvaging tape"),
 }
 
@@ -55,6 +57,8 @@ class Expedition:
                 self.sound.toggle()
 
     def draw(self, game, message, **frame):
+        if isinstance(game, Dive) and not frame:
+            frame = {"actions": combat_actions(game), "focus": 0}
         self.screen.battle(game, message, self.clock(), self.audio_label, **frame)
 
     def sequence(self, duration, cues, draw, update=lambda phase: None):
@@ -87,7 +91,8 @@ class Expedition:
             if applied and event.points:
                 sign = "+" if event.kind == "repair" else "-"
                 feedback += f"   {sign}{event.points} HULL"
-            self.draw(before, feedback, kind=event.kind, phase=phase)
+            pose = {"breach": "cutter", "brace": "anchor"}.get(event.kind, event.kind)
+            self.draw(before, feedback, kind=pose, phase=phase)
 
         self.sequence(duration, cues, frame, update)
 
@@ -130,7 +135,7 @@ class Expedition:
                     phrase = ""
 
     def perform(self, game, key, phrase=""):
-        before = CombatView(game) if self.animate and key in ("a", "s", "r", "f") else None
+        before = CombatView(game) if self.animate and key in ("a", "s", "r", "f", "b", "g") else None
         result = game.resolve(key, phrase)
         if result.events:
             if before:
@@ -147,11 +152,40 @@ class Expedition:
                 self.sound.cue("lost")
         return result.message
 
+    def salvage(self, game, message):
+        selected = 0
+        while True:
+            key = self.wait(lambda: self.screen.service(game, message, self.clock(), selected))
+            if key in ("left", "right", "up", "down", "tab"):
+                selected = 1 - selected
+            elif key == "m":
+                self.sound.toggle()
+            elif key == "q":
+                return self.perform(game, key)
+            elif key in ("1", "2", "enter"):
+                choice = str(selected + 1) if key == "enter" else key
+                self.sound.cue("heal" if choice == "2" else "reel")
+                return game.take_salvage(choice) + " " + game.sector_hint
+
     def game(self, selection):
         game = Dive(Rivet() if selection == "1" else Echo())
-        message = "An amber light moves behind the flood gate. Cut twice to charge the hydrophone."
+        message = game.sector_hint
+        focus = 0
         while game.status == "active":
-            key = self.wait(lambda: self.draw(game, message))
+            if game.salvage:
+                message = self.salvage(game, message)
+                focus = 0
+                continue
+            actions = combat_actions(game)
+            key = self.wait(lambda: self.draw(game, message, actions=actions, focus=focus))
+            if key in ("left", "right", "up", "down", "tab"):
+                step = -1 if key in ("left", "up") else 1
+                focus = (focus + step) % len(actions)
+                continue
+            if key == "enter":
+                key = actions[focus].key
+            else:
+                focus = next((i for i, action in enumerate(actions) if action.key == key), focus)
             phrase = ""
             if key == "m":
                 self.sound.toggle()
@@ -161,7 +195,10 @@ class Expedition:
                 if not key:
                     message = "Hydrophone closed."
                     continue
-            message = self.perform(game, key, phrase)
+            if key == "i":
+                message = self.perform(game, key) + " " + game.sector_hint
+            else:
+                message = self.perform(game, key, phrase)
         self.draw(game, message, closed=game.status != "quit")
         if self.term.live and game.status != "quit":
             while True:
@@ -179,15 +216,20 @@ class Expedition:
             self.draw(game, message)
             if self.term.live and self.term.read(.56) == "q":
                 return "quit"
-            if game.can_tune:
+            if game.salvage:
+                choice = "2" if game.pilot.hull <= game.pilot.maximum - 5 else "1"
+                game.take_salvage(choice)
+            if game.contact.hull <= game.cutter_damage:
+                key = "a"
+            elif game.armor and game.breach_ready:
+                key = "b"
+            elif game.can_tune:
                 if self.term.live:
                     self.call(game)
                 key = "f"
-            elif game.contact.hull <= 5:
-                key = "a"
-            elif game.pilot.hull <= 15 and len(game.pilot.pack):
+            elif game.pilot.hull <= 15 and game.pilot.cells:
                 key = "r"
-            elif game.pulse >= 5 and len(game.pilot.pack) >= 2:
+            elif game.response >= 5 and game.pilot.cells >= 2:
                 key = "s"
             else:
                 key = "a"

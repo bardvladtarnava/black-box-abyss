@@ -129,6 +129,10 @@ class Rivet(Hero):
     def equipment(self):
         return f"{self._charges}/2 anchors"
 
+    @property
+    def ability_ready(self):
+        return self._charges > 0
+
     def ability(self, contact, pulse):
         if not self._charges:
             return None
@@ -141,6 +145,10 @@ class Echo(Hero):
     skill = "Decoy"
     equipment = "decoy costs 1 cell"
 
+    @property
+    def ability_ready(self):
+        return self.cells > 0
+
     def ability(self, contact, pulse):
         if self.pack.spend():
             return Event("decoy", contact.damage(pulse))
@@ -152,6 +160,7 @@ class Dive:
         self.pilot = pilot
         self.index = 0
         self.status = "active"
+        self.salvage = False
         self._enter()
 
     @property
@@ -161,6 +170,7 @@ class Dive:
     def _enter(self):
         self.contact = Character(self.sector.hull)
         self.turn = self._noise = 0
+        self.breach_ready = True
         self.pilot.enter()
 
     @property
@@ -176,6 +186,48 @@ class Dive:
     def can_tune(self):
         return self.status == "active" and self.noise == 2
 
+    @property
+    def armor(self):
+        if not self.breach_ready:
+            return 0
+        if self.index == 1 and self.pulse == 5:
+            return 3
+        if self.index == 3 and self.contact.hull <= self.contact.maximum // 2:
+            return 2
+        return 0
+
+    @property
+    def cutter_damage(self):
+        return 5 - self.armor
+
+    @property
+    def response(self):
+        extra = 2 if self.index == 2 and self.noise == 2 else 0
+        return self.pulse + extra
+
+    @property
+    def sector_hint(self):
+        if self.index == 0:
+            return "Cut twice to unlock Tune. The third cut risks a sonar counter."
+        if self.index == 1:
+            return "The crab seals its shell on pulse 5. Breach strips its armor for the fight."
+        if self.index == 2:
+            return "At two noise marks the eel hits +2. Tune or Brace to clear noise."
+        return "The Listener shields itself at half hull. Breach can disable the shield before it activates."
+
+    def take_salvage(self, choice):
+        if self.status != "active" or not self.salvage:
+            return ""
+        if choice == "1":
+            self.pilot.pack.collect()
+            reward = "Spare cell stored."
+        elif choice == "2":
+            reward = f"Service bay restored {self.pilot.heal(8)} hull."
+        else:
+            return ""
+        self.salvage = False
+        return reward
+
     def act(self, key):
         return self.resolve(key).message
 
@@ -187,16 +239,28 @@ class Dive:
             return Turn("Ascent initiated.")
         if key == "i":
             return Turn(f"SCAN / Pulse cycle {'-'.join(map(str, self.sector.pulses))}. Acoustic signature {self.sector.song}.")
+        incoming = self.response
         if key == "a":
-            event = Event("cutter", self.contact.damage(5))
+            event = Event("cutter", self.contact.damage(self.cutter_damage))
             self._noise += 1
             message = f"Cutter hit for {event.points}."
         elif key == "s":
-            event = self.pilot.ability(self.contact, self.pulse)
+            event = self.pilot.ability(self.contact, incoming)
             if event is None:
                 return Turn("Ability depleted. Select another action.")
             self._noise = 0
             message = "Anchor held. Pulse absorbed." if event.kind == "anchor" else f"Decoy returned {event.points} damage."
+        elif key == "b":
+            if not self.breach_ready:
+                return Turn("Breach is spent until the next sector.")
+            self.breach_ready = False
+            event = Event("breach", self.contact.damage(7))
+            message = f"Breach hit for {event.points}. Armor disabled."
+        elif key == "g":
+            self._noise = 0
+            incoming = max(0, incoming - 4)
+            event = Event("brace")
+            message = "Brace absorbed up to 4 damage. Noise cleared."
         elif key == "r":
             restored = self.pilot.pack.repair(self.pilot)
             if not restored:
@@ -214,6 +278,7 @@ class Dive:
         else:
             return Turn("Unknown key. Scan with I or strike with A.")
 
+        self.salvage = False
         if self.contact.hull == 0:
             tape = self.sector.tape
             if self.index == len(SECTORS) - 1:
@@ -221,19 +286,21 @@ class Dive:
             else:
                 self.index += 1
                 self.pilot.pack.collect()
+                self.salvage = True
                 self._enter()
                 tape += "  [+1 cell]"
             return Turn(tape, (event, Event("wreck")))
 
         events = [event]
-        if event.kind in ("cutter", "repair"):
-            hit = self.pulse
+        if event.kind in ("cutter", "repair", "breach", "brace"):
+            hit = incoming
             if self.noise == 3:
                 hit += 3
                 self._noise = 0
                 message += " SONAR LOCK."
-            events.append(Event("counter", self.pilot.damage(hit)))
-            message += f" Hull -{events[-1].points}."
+            if hit:
+                events.append(Event("counter", self.pilot.damage(hit)))
+                message += f" Hull -{events[-1].points}."
         self.turn += 1
         if self.pilot.hull == 0:
             self.status = "lost"

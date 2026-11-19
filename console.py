@@ -10,7 +10,7 @@ import time
 from functools import lru_cache
 from dataclasses import dataclass
 
-from ocean import CYAN, GOLD, H, RED, W, WHITE, arena, receiver, recorder, title
+from ocean import CYAN, GOLD, H, RED, W, WHITE, arena, pressure_wave, receiver, recorder, title
 
 RESET = "\x1b[0m"
 ERASE = "\x1b[K"
@@ -119,8 +119,7 @@ class Terminal:
                 time.sleep(.008)
             key = msvcrt.getwch()
             if key in ("\x00", "\xe0"):
-                msvcrt.getwch()
-                return ""
+                return {"K": "left", "M": "right", "H": "up", "P": "down"}.get(msvcrt.getwch(), "")
         else:
             if not select.select([sys.stdin], [], [], timeout)[0]:
                 return None
@@ -131,8 +130,11 @@ class Terminal:
                 more = os.read(sys.stdin.fileno(), 1)
                 if more in (b"[", b"O"):
                     while select.select([sys.stdin], [], [], .002)[0]:
-                        if 0x40 <= os.read(sys.stdin.fileno(), 1)[0] <= 0x7e:
-                            break
+                        part = os.read(sys.stdin.fileno(), 1)
+                        if not part:
+                            return "q"
+                        if 0x40 <= part[0] <= 0x7e:
+                            return {b"A": "up", b"B": "down", b"C": "right", b"D": "left"}.get(part, "")
                     return ""
                 return "esc"
             key = raw.decode("ascii", "ignore")
@@ -142,6 +144,8 @@ class Terminal:
             return "back"
         if key in ("\r", "\n"):
             return "enter"
+        if key == "\t":
+            return "tab"
         if key == "\x1b":
             return "esc"
         return key.lower()
@@ -192,7 +196,7 @@ class CombatView:
                                 pilot.equipment, len(pilot.pack))
         self.contact = HullReading(game.contact.hull, game.contact.maximum)
         self.sector, self.index = game.sector, game.index
-        self.pulse, self.noise = game.pulse, game.noise
+        self.pulse, self.noise = game.response, game.noise
         self.can_tune, self.status = game.can_tune, game.status
         self.final_noise = self.noise
         self.final_equipment = self.pilot.equipment
@@ -203,7 +207,7 @@ class CombatView:
             self.final_equipment = game.pilot.equipment
 
     def apply(self, event):
-        if event.kind in ("cutter", "resonate", "decoy"):
+        if event.kind in ("cutter", "resonate", "decoy", "breach"):
             self.contact.hull -= event.points
         elif event.kind == "counter":
             self.pilot.hull -= event.points
@@ -212,10 +216,37 @@ class CombatView:
             self.pilot.cells -= 1
         if event.kind == "decoy":
             self.pilot.cells -= 1
-        if event.kind in ("cutter", "anchor", "decoy", "resonate"):
+        if event.kind in ("cutter", "anchor", "decoy", "resonate", "brace"):
             self.noise = self.final_noise
             self.can_tune = self.noise == 2
             self.pilot.equipment = self.final_equipment
+
+
+@dataclass(frozen=True)
+class Action:
+    key: str
+    name: str
+    hint: str
+    ready: bool = True
+
+
+def combat_actions(game):
+    pilot = game.pilot
+    rig = "Block the pulse and clear noise. Costs 1 anchor." if pilot.skill == "Anchor" else (
+        f"Reflect the incoming {game.response} damage. Costs 1 cell."
+    )
+    return (
+        Action("a", "Cut", f"{game.cutter_damage} damage, +1 noise. Contact can respond."),
+        Action("s", pilot.skill, rig if pilot.ability_ready else "No charges left.", pilot.ability_ready),
+        Action("b", "Breach", "7 damage and permanent armor break. Once per sector." if game.breach_ready
+               else "Spent. Reloads in the next sector.", game.breach_ready),
+        Action("g", "Brace", "Reduce the incoming hit by 4 and clear noise."),
+        Action("r", "Repair", "Restore up to 12 hull. Costs 1 cell." if pilot.hull < pilot.maximum and pilot.cells
+               else "Requires hull damage and 1 cell.", pilot.hull < pilot.maximum and pilot.cells > 0),
+        Action("f", "Tune", "Match three notes to deal 4 damage and cancel the response." if game.can_tune
+               else "Requires two noise marks.", game.can_tune),
+        Action("i", "Scan", game.sector_hint),
+    )
 
 
 class Display:
@@ -248,7 +279,18 @@ class Display:
             (f"[D] Watch a dive     [M] Audio {sound}     [Q] Surface", DIM),
         ])
 
-    def battle(self, game, message, now, sound, kind="idle", phase=0., phrase=None, closed=False):
+    def service(self, game, message, now, selected):
+        options = (("1", "Pack a spare cell"), ("2", f"Restore {min(8, game.pilot.maximum - game.pilot.hull)} hull"))
+        canvas = recorder(now) if self.term.live else None
+        self._screen(f"SERVICE BAY  /  NEXT  {game.sector.room.upper()}", canvas, [
+            (message, DIM),
+            (f"HULL {game.pilot.hull}/{game.pilot.maximum}    CELLS {game.pilot.cells}", CYAN),
+            *((f"{'›' if i == selected else ' '} [{key}] {label}", GOLD if i == selected else WHITE)
+              for i, (key, label) in enumerate(options)),
+            ("← → / Tab  Select    Enter  Confirm    [Q] Quit", DIM),
+        ])
+
+    def battle(self, game, message, now, sound, kind="idle", phase=0., phrase=None, closed=False, actions=(), focus=0):
         w, _ = self.term.size
         pilot, contact = game.pilot, game.contact
         hull = f"{pilot.name.upper()}  {pilot.hull:02}/{pilot.maximum}"
@@ -263,9 +305,11 @@ class Display:
         sonar = f"NOISE {'●' * game.noise}{'○' * (3 - game.noise)}   CELLS {pilot.cells}   {pilot.equipment.upper()}"
         if game.can_tune:
             sonar += "   •   F: MATCH OPEN"
-        next_hit = f"NEXT PULSE {game.pulse}" + ("   (+3 if you strike)" if game.noise == 2 else "")
+        next_hit = f"NEXT PULSE {game.response if kind == 'idle' else game.pulse}" + ("   (+3 if you strike)" if game.noise == 2 else "")
         footer = [(hull + gap + target, WHITE), (sonar, CYAN)]
         if not closed:
+            if actions and game.armor:
+                next_hit += f"   ARMOR −{game.armor} CUT DAMAGE"
             footer.append((next_hit, GOLD))
         footer.append((message, RED if kind == "counter" or game.status == "lost" else DIM))
         if phrase is not None:
@@ -275,9 +319,20 @@ class Display:
                        ("[1] Low  [2] Mid  [3] High    [L] Replay    [X] Cancel", WHITE)]
         elif closed:
             footer.append(("[Enter / Q] Return to surface", GOLD))
+        elif actions:
+            row = []
+            for index, action in enumerate(actions):
+                marker = "›" if index == focus else " "
+                label = f"{marker}[{action.key.upper()} {action.name}]" + ("" if action.ready else "×")
+                row.append(label)
+            footer += [("  ".join(row), CYAN), (actions[focus].hint, WHITE),
+                       (f"← → / Tab  Select    Enter  Use    [M] {sound}    [Q] Quit", DIM)]
         else:
-            footer.append((f"[A] Cut  [S] {pilot.skill}  [R] Repair  [F] Tune  [I] Scan  [M] {sound}  [Q] Quit", WHITE))
+            footer.append((f"[A] Cut  [S] {pilot.skill}  [B] Breach  [G] Brace  [R] Repair  [F] Tune  [I] Scan  [M] {sound}  [Q] Quit", WHITE))
         canvas = arena(game.index, pilot.name, now, kind, phase) if self.term.live else None
+        if canvas is not None and actions and game.armor:
+            y = 30 if game.index == 1 else 23
+            pressure_wave(canvas, 105, y, 24, GOLD)
         if canvas is not None and phrase is not None:
             receiver(canvas, game.sector.song, phrase, now)
         if closed and self.term.live and game.status in ("won", "lost"):

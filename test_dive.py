@@ -49,10 +49,14 @@ class Rules(unittest.TestCase):
             for _ in range(100):
                 if g.status != "active":
                     break
-                if g.contact.hull <= 5:
+                if g.contact.hull <= g.cutter_damage:
                     hull = pilot.hull
                     g.act("a")
                     self.assertEqual(pilot.hull, hull)
+                elif g.armor:
+                    g.act("b")
+                elif g.can_tune:
+                    g.resolve("f", g.sector.song)
                 elif pilot.hull <= 15 and len(pilot.pack):
                     g.act("r")
                 else:

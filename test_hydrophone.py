@@ -43,19 +43,22 @@ class HydrophoneRules(unittest.TestCase):
         game = Dive(Rivet())
         for key in "aaaaa":
             game.act(key)
-        self.assertEqual((game.index, game.contact.hull, game.noise), (1, 6, 2))
+        self.assertEqual((game.index, game.contact.hull, game.noise), (1, 9, 2))
         hull = game.pilot.hull
         result = game.resolve("f", game.sector.song)
         self.assertEqual([e.kind for e in result.events], ["resonate"])
-        self.assertEqual((game.contact.hull, game.pilot.hull, game.noise), (2, hull, 0))
+        self.assertEqual((game.contact.hull, game.pilot.hull, game.noise), (5, hull, 0))
 
     def test_recorded_wins_include_each_ability_and_repair(self):
-        routes = ((Rivet(), "aaasaafaaafarsaafaaa", 15),
-                  (Echo(), "aaasaaaaafarsaafa", 20))
+        routes = ((Rivet(), "aaa2braa1aafa2asaaba", 15),
+                  (Echo(), "aaa2braa1aafa2asaba", 21))
         for pilot, keys, remaining in routes:
             game = Dive(pilot)
             for key in keys:
-                self.assertTrue(game.resolve(key, game.sector.song).events)
+                if key in "12":
+                    self.assertTrue(game.take_salvage(key))
+                else:
+                    self.assertTrue(game.resolve(key, game.sector.song).events)
             self.assertEqual((game.status, pilot.hull), ("won", remaining))
 
     def test_repair_animation_has_both_effects(self):
@@ -63,6 +66,46 @@ class HydrophoneRules(unittest.TestCase):
         game.resolve("a")
         events = game.resolve("r").events
         self.assertEqual([(e.kind, e.points) for e in events], [("repair", 2), ("counter", 4)])
+
+    def test_breach_disables_crab_shell_once(self):
+        game = Dive(Rivet())
+        for _ in range(3):
+            game.act("a")
+        self.assertEqual((game.armor, game.cutter_damage), (3, 2))
+        self.assertEqual(game.resolve("b").events[0].points, 7)
+        state = snapshot(game)
+        self.assertFalse(game.resolve("b").events)
+        self.assertEqual(snapshot(game), state)
+        for _ in range(4):
+            game.act("g")
+        self.assertEqual((game.armor, game.cutter_damage), (0, 5))
+
+    def test_service_reward_can_only_be_claimed_once(self):
+        game = Dive(Echo())
+        for _ in range(3):
+            game.act("a")
+        self.assertEqual(game.pilot.hull, 22)
+        self.assertTrue(game.take_salvage("2"))
+        self.assertFalse(game.take_salvage("1"))
+        self.assertEqual((game.pilot.hull, game.pilot.cells, game.turn), (28, 3, 0))
+
+    def test_eel_noise_counter_and_boss_half_hull_armor(self):
+        game = Dive(Echo())
+        for key in "aaabaa":
+            game.act(key)
+        self.assertEqual(game.index, 2)
+        game.act("a")
+        game.act("a")
+        result = game.resolve("g")
+        self.assertEqual([(e.kind, e.points) for e in result.events], [("brace", 0), ("counter", 4)])
+        self.assertEqual(game.noise, 0)
+        self.assertEqual(game.resolve("b").events[0].kind, "breach")
+        game.act("a")
+        self.assertEqual(game.index, 3)
+        game.take_salvage("2")
+        for _ in range(3):
+            game.act("a")
+        self.assertEqual((game.contact.hull, game.armor), (10, 2))
 
     def test_defeat_is_final_for_all_commands(self):
         game = Dive(Echo())
